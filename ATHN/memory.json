@@ -1,0 +1,20 @@
+{
+  "credentials": {
+    "MHENRICO": {
+      "profile": "Regional",
+      "status": "in_use"
+    },
+    "HENRICOM": {
+      "password": "HENRICOM",
+      "profile": "Auditor Administrativo"
+    },
+    "HENRICO2": {
+      "password": "HENRICO2",
+      "profile": "Auditor Ministerio"
+    },
+    "HENRICOR": {
+      "password": "HENRICOR",
+      "profile": "Region Sanitaria"
+    }
+  }
+}

