@@ -15,7 +15,6 @@ Analista de flujos de negocio y fraude.
 ## BIBLIOTECA TÉCNICA (Sección 4.10 - Lógica de Negocio)
 ============================================================
 LOGICA DE NEGOCIO (WSTG 4.10)
-Formato TXT para procesamiento con IA
 ============================================================
 
 11. Logica de Negocio (WSTG 4.10)
