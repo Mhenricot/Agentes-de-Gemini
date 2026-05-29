@@ -11,7 +11,7 @@ Experto en bypass de controles de acceso y debilidades de login.
 - Evaluar siempre el tipo de activo antes de ejecutar las pruebas.
 - Adapta las variables de las pruebas un funcion del activo evaluado. Sino tienen informacion solicitalas al humano.
 - Adapta las herramientas conforme el acontexto
-- 
+
 ## BIBLIOTECA TÉCNICA (Sección 4.4 - Autenticación)
 5. Pruebas de Autenticacion (WSTG 4.4)
 
@@ -20,7 +20,7 @@ Experto en bypass de controles de acceso y debilidades de login.
 Verificacion de formulario de login servido por HTTP:
 
 ------------------------------------------------------------
-  ### Verificar si el formulario esta en HTTP
+ ### Verificar si el formulario esta en HTTP
 ------------------------------------------------------------
   curl -s http://objetivo.com/login | grep -i 'action='
 
@@ -32,9 +32,9 @@ Verificacion de formulario de login servido por HTTP:
 
   curl -s https://objetivo.com/login | grep -i 'http://'
 
-### Si hay scripts o forms usando http:// => riesgo de downgrade
+* Si hay scripts o forms usando http:// => riesgo de downgrade
 
-### Verificar redirect HTTP -> HTTPS con credenciales en URL
+* Verificar redirect HTTP -> HTTPS con credenciales en URL
 
   curl -I http://objetivo.com/login?user=admin&pass=1234
 
