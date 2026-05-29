@@ -108,6 +108,9 @@ GET /openapi.json          # OpenAPI spec
 GET /api/v1/docs           # Documentacion API
 # Si devuelve 200 sin autenticacion => Expone toda la estructura de la API
 
+# Falta de Rate Limiting
+Enviar 100 peticiones en 1 segundo al endpoint de login o API.
+Si todas las peticiones devuelven `200` o `401` en lugar de un `429 Too Many Requests`.
 
 CHECKLIST — API Testing
 ID
